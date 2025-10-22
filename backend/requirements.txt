@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+pandas
+numpy
+stqdm
+scikit-learn
+tensorflow  
+vaderSentiment
+python-docx
+plotly
+openpyxl
+pyarrow
+python-dotenv
+volcengine-python-sdk[ark]
+onnxruntime-training

@@ -1,16 +1,28 @@
-# 虚拟环境文件夹
-.venv/
+# Python / Backend
+# -----------------
 venv/
-
-# 包含API密钥的环境变量文件 (!!!极其重要!!!)
-.env
-
-# Python 缓存文件
+.venv/
 __pycache__/
 *.pyc
+.env
 
-# IDE 配置文件 (例如 VSCode)
+# Node.js / Frontend
+# --------------------
+/frontend/node_modules/
+/frontend/.next/
+/frontend/out/
+/frontend/.env.local
+/frontend/.env.development.local
+/frontend/.env.production.local
+
+# IDE & OS specific files
+# -----------------------
+.idea/
 .vscode/
-# 忽略特定的测试或数据文件
-XX智能家居跨境电商企业产品介绍.docx
-杂项说明文档.txt
+.DS_Store
+
+# Log files
+# ---------
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

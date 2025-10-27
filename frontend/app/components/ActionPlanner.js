@@ -25,7 +25,7 @@ export default function ActionPlanner({ marketReport, validationSummary }) {
     setAiReport({ thinking: '正在整合信息并调用AI...', report: '' });
     
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/v1/reports/action-plan', {
+     const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/reports/action-plan`,  {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

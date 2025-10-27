@@ -29,7 +29,7 @@ export default function ReportDisplay({
       setStreamedContent({ thinking: '正在连接AI服务...', report: '' });
 
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/v1/reports/market-insight', {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/reports/market-insight`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(profile),
@@ -44,21 +44,20 @@ export default function ReportDisplay({
         
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let rawResponse = ''; // 存储原始的、未经过滤的响应
+        let fullResponse = '';
         const thinkEndMarker = '<<<<THINKING_ENDS>>>>';
         const reportStartMarker = '<<<<REPORT_STARTS>>>>';
-
-        // 【核心修复】: 定义一个正则表达式来匹配并移除工具调用块
-        const functionCallRegex = /<\|FunctionCallBegin\|>.*?<\|FunctionCallEnd\|>/gs;
+        
+        // 【核心优化】: 增加一个标志位，用于首次渲染
+        let isFirstChunk = true;
 
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           
-          rawResponse += decoder.decode(value, { stream: true });
-          
-          // 【核心修复】: 在处理前，先过滤掉工具调用信息
-          const filteredResponse = rawResponse.replace(functionCallRegex, '');
+          fullResponse += decoder.decode(value, { stream: true });
+
+          const filteredResponse = fullResponse.replace(/<\|FunctionCallBegin\|>.*?<\|FunctionCallEnd\|>/gs, '');
 
           let currentThinking = '';
           let currentReport = '';
@@ -73,13 +72,20 @@ export default function ReportDisplay({
             currentThinking = filteredResponse;
           }
           
-          debouncedSetStreamedContent({ thinking: currentThinking, report: currentReport });
+          const newContent = { thinking: currentThinking, report: currentReport };
+
+          // 【核心优化】: 第一个数据块立即渲染，后续的才防抖
+          if (isFirstChunk) {
+            setStreamedContent(newContent);
+            isFirstChunk = false;
+          } else {
+            debouncedSetStreamedContent(newContent);
+          }
         }
         
         debouncedSetStreamedContent.flush();
-
-        // 最终保存时，也要使用过滤后的内容
-        const finalFilteredResponse = rawResponse.replace(functionCallRegex, '');
+        
+        const finalFilteredResponse = fullResponse.replace(/<\|FunctionCallBegin\|>.*?<\|FunctionCallEnd\|>/gs, '');
         const finalParts = finalFilteredResponse.split(reportStartMarker, 2);
         
         if (finalParts.length > 1) {
@@ -93,7 +99,6 @@ export default function ReportDisplay({
           console.log('Fetch request was intentionally aborted.');
         } else {
           console.error(e);
-
           onError(`生成报告时发生网络或服务器错误: ${e.message}`);
         }
       }
@@ -107,7 +112,6 @@ export default function ReportDisplay({
     };
   }, [profile, onGenerationComplete, onError, debouncedSetStreamedContent]); 
 
-  // UI 部分保持不变
   return (
     <div className="space-y-6">
        <details open className="bg-gray-700/50 p-4 rounded-lg">

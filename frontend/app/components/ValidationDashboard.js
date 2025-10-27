@@ -45,7 +45,7 @@ export default function ValidationDashboard({ onValidationComplete }) {
     formData.append('file', file);
 
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/v1/data/${endpoint}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/data/${endpoint}`,  {
         method: 'POST',
         body: formData,
       });

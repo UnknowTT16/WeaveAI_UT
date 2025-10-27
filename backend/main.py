@@ -29,13 +29,14 @@ app = FastAPI(
 # 配置 CORS (跨源资源共享)，允许您的前端(localhost:3000)访问后端
 origins = [
     "http://localhost:3000",
-    "http://10.174.241.218:3000", # 也允许通过IP地址访问
+    "http://172.20.10.6:3000", # 示例IP
+    "http://192.168.43.4:3000" # 示例IP
 ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"], # 明确加入 OPTIONS
+    allow_methods=["*"], # 使用"*"可以简化配置
     allow_headers=["*"],
 )
 

@@ -1,0 +1,14 @@
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+static/reports/
+weaveai-key.pem
+*.pem
+*.log
+.git
+.gitignore
+.dockerignore

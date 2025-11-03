@@ -1,0 +1,24 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    image: weaveai-backend:latest
+    env_file:
+      - ./backend/.env
+    environment:
+      - CHROME_PATH=/usr/bin/chromium
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/static/reports:/app/static/reports
+
+  frontend:
+    build:
+      context: ./frontend
+    image: weaveai-frontend:latest
+    env_file:
+      - ./frontend/.env.local
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend

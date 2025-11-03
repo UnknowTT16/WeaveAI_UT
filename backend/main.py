@@ -45,6 +45,7 @@ origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://172.20.10.6:3000",
+    "http://8.134.84.154:3000",
     "http://192.168.43.4:3000"
 ]
 app.add_middleware(

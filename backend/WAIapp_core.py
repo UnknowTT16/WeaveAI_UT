@@ -11,14 +11,14 @@ import json
 from pandarallel import pandarallel
 
 # 分析库
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from keras.models import Sequential
 from keras.layers import LSTM, Dense, Input
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from pandas.errors import SettingWithCopyWarning, DtypeWarning
 from mlxtend.preprocessing import TransactionEncoder
-from mlxtend.frequent_patterns import apriori, association_rules
+from mlxtend.frequent_patterns import apriori, association_rules, fpgrowth
 
 # 可视化库
 import plotly.graph_objects as go
@@ -378,45 +378,79 @@ def perform_lstm_forecast(df: pd.DataFrame) -> go.Figure:
     fig.update_layout(title='未来30天销售额深度学习预测 (LSTM模型)', xaxis_title='日期', yaxis_title='销售额', template='plotly_white')
     return fig
 
-def calculate_wcss_for_elbow(scaled_data, max_k=10):
+def calculate_wcss_for_elbow(scaled_data, max_k=6):
     """
-    为手肘法计算不同K值下的WCSS (簇内平方和)
+    为手肘法计算不同K值下的WCSS (簇内平方差)。
+    默认仅计算到 K=6，并在数据量过大时自动抽样，以避免内存占用过高。
     """
+    sample = scaled_data
+    if sample.shape[0] > 2000:
+        rng = np.random.default_rng(42)
+        idx = rng.choice(sample.shape[0], 2000, replace=False)
+        sample = sample[idx]
+
+    max_k = max(1, min(max_k, sample.shape[0]))
+
     wcss = []
     for k in range(1, max_k + 1):
-        kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
-        kmeans.fit(scaled_data)
+        kmeans = MiniBatchKMeans(
+            n_clusters=k,
+            batch_size=512,
+            n_init=10,
+            random_state=42
+        )
+        kmeans.fit(sample)
         wcss.append(kmeans.inertia_)
-    
-    return [{'k': i + 1, 'wcss': val} for i, val in enumerate(wcss)]
+
+    return [{"k": i + 1, "wcss": val} for i, val in enumerate(wcss)]
+
 
 def perform_basket_analysis(df: pd.DataFrame):
     """
-    执行购物篮分析 (Apriori 算法)
+    执行购物篮分析（默认采用 FP-Growth），并在数据规模过大时自动裁剪。
     """
-    basket = (df.groupby(['Order ID', 'SKU'])['Qty']
+    basket_df = df[['Order ID', 'SKU', 'Qty']].copy()
+    basket_df = basket_df[basket_df['Qty'] > 0]
+
+    if basket_df.empty:
+        return []
+
+    order_count = basket_df['Order ID'].nunique()
+    if order_count > 5000:
+        sampled_orders = basket_df['Order ID'].drop_duplicates().sample(5000, random_state=42)
+        basket_df = basket_df[basket_df['Order ID'].isin(sampled_orders)]
+
+    sku_totals = basket_df.groupby('SKU')['Qty'].sum()
+    keep_skus = sku_totals[sku_totals >= 5].index
+    basket_df = basket_df[basket_df['SKU'].isin(keep_skus)]
+
+    if basket_df.empty:
+        return []
+
+    basket = (basket_df.groupby(['Order ID', 'SKU'])['Qty']
               .sum().unstack().reset_index().fillna(0)
               .set_index('Order ID'))
 
-    def encode_units(x):
-        return x > 0
+    basket_sets = basket.gt(0)
 
-    basket_sets = basket.applymap(encode_units)
-    
-    frequent_itemsets = apriori(basket_sets, min_support=0.015, use_colnames=True)
+    frequent_itemsets = fpgrowth(
+        basket_sets,
+        min_support=0.02,
+        use_colnames=True
+    )
     if frequent_itemsets.empty:
         return []
 
-    rules = association_rules(frequent_itemsets, metric="lift", min_threshold=1)
-    
+    rules = association_rules(frequent_itemsets, metric="lift", min_threshold=1.05)
+
     if rules.empty:
         return []
 
     rules["antecedents"] = rules["antecedents"].apply(lambda x: ', '.join(list(x)))
     rules["consequents"] = rules["consequents"].apply(lambda x: ', '.join(list(x)))
-    
+
     result = rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']]
-    result = result.sort_values(by='lift', ascending=False)
+    result = result.sort_values(by='lift', ascending=False).head(20)
 
     result['support'] = result['support'].map('{:.2%}'.format)
     result['confidence'] = result['confidence'].map('{:.2%}'.format)
@@ -424,40 +458,59 @@ def perform_basket_analysis(df: pd.DataFrame):
 
     return result.to_dict(orient='records')
 
+
 def perform_product_clustering(df: pd.DataFrame) -> dict:
     """
-    【最终修正版】产品聚类函数，修正了图表JSON生成的bug
+    【最终修正版】产品聚类函数，修正了图表JSON生成的bug，并加入数据裁剪以降低内存占用。
     """
     required_cols = ['SKU', 'Amount', 'Qty', 'Order ID']
     if not all(col in df.columns for col in required_cols):
-        raise ValueError("聚类分析失败：缺少必要的列。")
-    
+        raise ValueError("聚类分析失败：缺少必要的列")
+
     product_agg_df = df.groupby('SKU').agg(
-        total_amount=('Amount', 'sum'), 
-        total_qty=('Qty', 'sum'), 
+        total_amount=('Amount', 'sum'),
+        total_qty=('Qty', 'sum'),
         order_count=('Order ID', 'nunique')
     ).reset_index()
 
-    if len(product_agg_df) > 10000:
-        df_for_clustering = product_agg_df.sample(n=10000, random_state=42)
-    else:
-        df_for_clustering = product_agg_df
+    if product_agg_df.empty:
+        return {
+            "cluster_summary": [],
+            "product_points": [],
+            "elbow_data": [],
+            "elbow_chart_json": go.Figure().to_json(),
+            "scatter_3d_chart_json": go.Figure().to_json()
+        }
 
-    features = df_for_clustering[['total_amount', 'total_qty', 'order_count']]
+    product_agg_df.sort_values('total_amount', ascending=False, inplace=True)
+
+    top_k = min(len(product_agg_df), 5000)
+    df_for_clustering = product_agg_df.head(top_k).copy()
+
+    features_for_fit = df_for_clustering[['total_amount', 'total_qty', 'order_count']].astype(np.float32)
     scaler = StandardScaler()
-    features_scaled = scaler.fit_transform(features)
-    
-    elbow_data = calculate_wcss_for_elbow(features_scaled)
-    
-    kmeans = KMeans(n_clusters=3, n_init=10, random_state=42)
-    kmeans.fit(features_scaled)
+    features_scaled = scaler.fit_transform(features_for_fit)
 
-    all_features = product_agg_df[['total_amount', 'total_qty', 'order_count']]
-    all_features_scaled = scaler.transform(all_features)
-    product_agg_df['cluster'] = kmeans.predict(all_features_scaled)
-    
+    if features_scaled.shape[0] < 2:
+        elbow_data = []
+        product_agg_df['cluster'] = 0
+    else:
+        elbow_data = calculate_wcss_for_elbow(features_scaled)
+        n_clusters = min(3, features_scaled.shape[0])
+        kmeans = MiniBatchKMeans(
+            n_clusters=n_clusters,
+            batch_size=512,
+            n_init=10,
+            random_state=42
+        )
+        kmeans.fit(features_scaled)
+
+        all_features = product_agg_df[['total_amount', 'total_qty', 'order_count']].astype(np.float32)
+        all_features_scaled = scaler.transform(all_features)
+        product_agg_df['cluster'] = kmeans.predict(all_features_scaled)
+
     cluster_summary_df = product_agg_df.groupby('cluster')[['total_amount', 'total_qty', 'order_count']].mean().sort_values(by='total_amount', ascending=False).reset_index()
-    
+
     if not cluster_summary_df.empty:
         hot_cluster_id = cluster_summary_df.iloc[0]['cluster']
         cluster_summary_df['is_hot_cluster'] = cluster_summary_df['cluster'] == hot_cluster_id
@@ -465,21 +518,20 @@ def perform_product_clustering(df: pd.DataFrame) -> dict:
         cluster_summary_df['is_hot_cluster'] = False
 
     # --- 生成图表对象 ---
-    # 1. 手肘法图表
     fig_elbow = go.Figure()
-    fig_elbow.add_trace(go.Scatter(
-        x=[d['k'] for d in elbow_data],
-        y=[d['wcss'] for d in elbow_data],
-        mode='lines+markers'
-    ))
+    if elbow_data:
+        fig_elbow.add_trace(go.Scatter(
+            x=[d['k'] for d in elbow_data],
+            y=[d['wcss'] for d in elbow_data],
+            mode='lines+markers'
+        ))
     fig_elbow.update_layout(
         title='手肘法确定最佳聚类数',
         xaxis_title='聚类数量 K',
-        yaxis_title='簇内平方和 (WCSS)',
+        yaxis_title='簇内平方差 (WCSS)',
         template='plotly_dark'
     )
 
-    # 2. 3D散点图
     fig_3d = go.Figure()
     fig_3d.add_trace(go.Scatter3d(
         x=product_agg_df['total_amount'],
@@ -504,7 +556,7 @@ def perform_product_clustering(df: pd.DataFrame) -> dict:
             zaxis_title='订单数'
         )
     )
-    
+
     return {
         "cluster_summary": cluster_summary_df.to_dict(orient='records'),
         "product_points": product_agg_df.to_dict(orient='records'),
@@ -512,6 +564,7 @@ def perform_product_clustering(df: pd.DataFrame) -> dict:
         "elbow_chart_json": fig_elbow.to_json(),
         "scatter_3d_chart_json": fig_3d.to_json()
     }
+
 
 def perform_sentiment_analysis(df: pd.DataFrame) -> dict:
     """

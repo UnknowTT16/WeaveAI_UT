@@ -11,6 +11,9 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/static/reports:/app/static/reports
+    mem_limit: 6g          # 新增：容器内存上限（确保小于宿主机可用内存）
+    mem_reservation: 4g    # 可选：提示 Docker 给容器预留至少 4GB
+
 
   frontend:
     build:

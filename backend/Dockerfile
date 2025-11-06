@@ -16,8 +16,12 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         build-essential \
         libgomp1 \
-        chromium; \
-    apt-get clean; \
+        chromium \
+        fonts-noto-cjk \
+        fonts-noto-cjk-extra \
+        fonts-noto-color-emoji \
+        fonts-wqy-zenhei && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

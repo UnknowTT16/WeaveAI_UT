@@ -283,8 +283,16 @@ async def _export_url_to_pdf(report_url: str, output_path: Path):
         else:
             raise
 
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(report_url)
+    effective_url = report_url
+    if parsed.hostname and parsed.hostname not in {"127.0.0.1", "localhost", "backend"}:
+        internal_port = f":{parsed.port}" if parsed.port else ""
+        effective_url = urlunparse(parsed._replace(netloc=f"127.0.0.1{internal_port}"))
+
     page = await browser.newPage()
-    await page.goto(report_url, {"waitUntil": "networkidle2"})
+    await page.goto(effective_url, {"waitUntil": "networkidle2", "timeout": 60000})
     await page.pdf({
         "path": str(output_path),
         "format": "A4",

@@ -32,6 +32,6 @@ weaveai-key.pem
 *.pem
 
 #new additions
-static/reports/
+backend/static/reports/
 node20-alpine.tar
 python311-slim.tar
